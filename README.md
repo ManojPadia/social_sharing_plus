@@ -2,7 +2,7 @@
   <img src="https://github.com/user-attachments/assets/c4ae675c-af94-44c3-b24b-b46db3a07eff" />
 </p>
 
-`social_sharing_plus` is a Flutter plugin that allows you to share content, images and videos to various social media platforms like Facebook, Twitter, LinkedIn, WhatsApp, Reddit, and Telegram. This package provides a simple and unified interface for sharing across different apps, handling the nuances and differences of each platform.
+`social_sharing_plus` is a Flutter plugin that allows you to share content, images and videos to various social media platforms like Facebook, Twitter (X), LinkedIn, WhatsApp, Reddit, Telegram, and Instagram (feed + stories). This package provides a simple and unified interface for sharing across different apps, handling the nuances and differences of each platform.
 
 🚀 **Exciting News!** You can now share multiple images and videos with text(optional)! 📸🎥
 
@@ -54,6 +54,8 @@ You need to add the following queries to your app's AndroidManifest.xml file to 
         <package android:name="com.whatsapp" />
         <!-- Query for Telegram -->
         <package android:name="org.telegram.messenger" />
+        <!-- Query for Instagram -->
+        <package android:name="com.instagram.android" />
     </queries>
 
     <application>
@@ -95,7 +97,17 @@ This `<provider>` tag specifies the authorization of your file provider and what
 <details>
 <summary>iOS (click to expand)</summary>
 
-No special configuration is needed for iOS.
+Add the Instagram schemes to allow story/feed redirection:
+
+```xml
+<key>LSApplicationQueriesSchemes</key>
+<array>
+  <string>instagram</string>
+  <string>instagram-stories</string>
+</array>
+```
+
+Ensure you already request photo/video library access if you share local files.
 
 </details>
 
