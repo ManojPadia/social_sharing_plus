@@ -4,6 +4,7 @@ import Photos
 import UniformTypeIdentifiers
 import FBSDKCoreKit
 import FBSDKShareKit
+import Social
 
 public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     
@@ -113,14 +114,56 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     ///   - result: FlutterResult object to complete the call.
     ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
     private func shareToTwitter(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
-        if let content = arguments["content"] as? String, let imageUri = arguments["media"] as? String {
-            shareContentAndImageToSpecificApp(content: content, imageUri: imageUri, appUrlScheme: "twitter://", webUrlString: "https://x.com/intent/tweet?text=\(content)", result: result, isOpenBrowser: isOpenBrowser)
-        } else if let content = arguments["content"] as? String {
-            let urlString = "twitter://post?message=\(content)"
-            let webUrlString = "https://x.com/intent/tweet?text=\(content)"
-            openUrl(urlString: urlString, webUrlString: webUrlString, result: result, isOpenBrowser: isOpenBrowser)
-        } else if let imageUri = arguments["media"] as? String {
-            shareImageToSpecificApp(imageUri: imageUri, appUrlScheme: "twitter://", result: result, isOpenBrowser: isOpenBrowser)
+        let content = arguments["content"] as? String
+        let mediaArgument = arguments["media"]
+        let mediaUris: [String] = (mediaArgument as? [String]) ?? ((mediaArgument as? String).map { [$0] } ?? [])
+        
+        guard content != nil || !mediaUris.isEmpty else {
+            result(FlutterError(code: "CONTENT_REQUIRED", message: "Twitter sharing requires text or media", details: nil))
+            return
+        }
+        
+        guard let twitterURL = URL(string: "twitter://") else {
+            result(FlutterError(code: "URL_ERROR", message: "Invalid Twitter URL scheme", details: nil))
+            return
+        }
+        
+        guard UIApplication.shared.canOpenURL(twitterURL) else {
+            if let content = content, isOpenBrowser {
+                let webUrlString = "https://x.com/intent/tweet?text=\(content)"
+                openUrl(urlString: webUrlString, webUrlString: webUrlString, result: result, isOpenBrowser: true)
+            } else {
+                result(FlutterError(code: "APP_NOT_INSTALLED", message: "Twitter is not installed and browser option is not enabled", details: nil))
+            }
+            return
+        }
+        
+        guard let composer = SLComposeViewController(forServiceType: SLServiceTypeTwitter) else {
+            result(FlutterError(code: "TWITTER_COMPOSER_ERROR", message: "Unable to create Twitter composer", details: nil))
+            return
+        }
+        
+        if let content = content {
+            composer.setInitialText(content)
+            if #unavailable(iOS 16.0), let url = URL(string: content) {
+                composer.add(url)
+            }
+        }
+        
+        for mediaPath in mediaUris {
+            if let image = UIImage(contentsOfFile: mediaPath) {
+                composer.add(image)
+            }
+        }
+        
+        DispatchQueue.main.async {
+            guard let topController = self.topViewController() else {
+                result(FlutterError(code: "VIEW_ERROR", message: "Unable to find a view controller to present Twitter composer", details: nil))
+                return
+            }
+            
+            topController.present(composer, animated: true, completion: nil)
+            result(nil)
         }
     }
 
