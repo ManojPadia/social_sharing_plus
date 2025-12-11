@@ -40,7 +40,18 @@ enum SocialPlatform {
   /// For [iOS], only text sharing is supported.
   ///
   /// For [Android], you can share both text, images and videos.
-  telegram;
+  telegram,
+
+  /// Represents Instagram (feed).
+  ///
+  /// For [iOS], sharing uses the native share sheet. For [Android], you can
+  /// share text plus a single image or video directly to the Instagram app.
+  instagram,
+
+  /// Represents Instagram story.
+  ///
+  /// For [iOS] and [Android], a media asset (image or video) is required.
+  instagramStory;
 
   /// Returns the method name corresponding to each social media platform.
   String get methodName {
@@ -57,6 +68,10 @@ enum SocialPlatform {
         return 'shareToWhatsApp';
       case SocialPlatform.telegram:
         return 'shareToTelegram';
+      case SocialPlatform.instagram:
+        return 'shareToInstagram';
+      case SocialPlatform.instagramStory:
+        return 'shareToInstagramStory';
     }
   }
 }

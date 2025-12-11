@@ -1,5 +1,10 @@
 import Flutter
 import UIKit
+import Photos
+import UniformTypeIdentifiers
+import FBSDKCoreKit
+import FBSDKShareKit
+import Social
 
 public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     
@@ -43,6 +48,10 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
             shareToReddit(arguments: arguments, result: result, isOpenBrowser: isOpenBrowser)
         case "shareToTelegram":
             shareToTelegram(arguments: arguments, result: result, isOpenBrowser: isOpenBrowser)
+        case "shareToInstagram":
+            shareToInstagram(arguments: arguments, result: result, isOpenBrowser: isOpenBrowser)
+        case "shareToInstagramStory":
+            shareToInstagramStory(arguments: arguments, result: result, isOpenBrowser: isOpenBrowser)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -57,14 +66,44 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     ///   - result: FlutterResult object to complete the call.
     ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
     private func shareToFacebook(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
-        if let content = arguments["content"] as? String, let imageUri = arguments["media"] as? String {
-            shareContentAndImageToSpecificApp(content: content, imageUri: imageUri, appUrlScheme: "fb://publish/profile/me?text=\(content)", webUrlString: "https://www.facebook.com/sharer/sharer.php?u=\(content)", result: result, isOpenBrowser: isOpenBrowser)
-        } else if let content = arguments["content"] as? String {
-            let urlString = "fb://publish/profile/me?text=\(content)"
+        let content = arguments["content"] as? String
+        let mediaArgument = arguments["media"]
+        let mediaUri: String? = (mediaArgument as? String) ?? (mediaArgument as? [String])?.first
+
+        if let mediaUri = mediaUri {
+            guard let image = UIImage(contentsOfFile: mediaUri) else {
+                result(FlutterError(code: "IMAGE_ERROR", message: "Invalid image path for Facebook sharing", details: nil))
+                return
+            }
+
+            let photo = SharePhoto(image: image, isUserGenerated: true)
+            let photoContent = SharePhotoContent()
+            photoContent.photos = [photo]
+            if let content = content, !content.isEmpty {
+                photoContent.hashtag = Hashtag(content)
+            }
+
+            DispatchQueue.main.async {
+                guard let topController = self.topViewController() else {
+                    result(FlutterError(code: "VIEW_ERROR", message: "Unable to find a view controller to present Facebook dialog", details: nil))
+                    return
+                }
+
+                let dialog = ShareDialog(viewController: topController, content: photoContent, delegate: nil)
+                do {
+                    try dialog.validate()
+                } catch {
+                    result(FlutterError(code: "FACEBOOK_SHARE_ERROR", message: error.localizedDescription, details: nil))
+                    return
+                }
+                dialog.show()
+                result(nil)
+            }
+        } else if let content = content {
             let webUrlString = "https://www.facebook.com/sharer/sharer.php?u=\(content)"
-            openUrl(urlString: urlString, webUrlString: webUrlString, result: result, isOpenBrowser: isOpenBrowser)
-        } else if let imageUri = arguments["media"] as? String {
-            shareImageToSpecificApp(imageUri: imageUri, appUrlScheme: "fb://", result: result, isOpenBrowser: isOpenBrowser)
+            openUrl(urlString: webUrlString, webUrlString: webUrlString, result: result, isOpenBrowser: isOpenBrowser)
+        } else {
+            result(FlutterError(code: "CONTENT_REQUIRED", message: "Facebook sharing requires content or media", details: nil))
         }
     }
 
@@ -75,14 +114,56 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     ///   - result: FlutterResult object to complete the call.
     ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
     private func shareToTwitter(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
-        if let content = arguments["content"] as? String, let imageUri = arguments["media"] as? String {
-            shareContentAndImageToSpecificApp(content: content, imageUri: imageUri, appUrlScheme: "twitter://post?message=\(content)", webUrlString: "https://x.com/intent/tweet?text=\(content)", result: result, isOpenBrowser: isOpenBrowser)
-        } else if let content = arguments["content"] as? String {
-            let urlString = "twitter://post?message=\(content)"
-            let webUrlString = "https://x.com/intent/tweet?text=\(content)"
-            openUrl(urlString: urlString, webUrlString: webUrlString, result: result, isOpenBrowser: isOpenBrowser)
-        } else if let imageUri = arguments["media"] as? String {
-            shareImageToSpecificApp(imageUri: imageUri, appUrlScheme: "twitter://", result: result, isOpenBrowser: isOpenBrowser)
+        let content = arguments["content"] as? String
+        let mediaArgument = arguments["media"]
+        let mediaUris: [String] = (mediaArgument as? [String]) ?? ((mediaArgument as? String).map { [$0] } ?? [])
+        
+        guard content != nil || !mediaUris.isEmpty else {
+            result(FlutterError(code: "CONTENT_REQUIRED", message: "Twitter sharing requires text or media", details: nil))
+            return
+        }
+        
+        guard let twitterURL = URL(string: "twitter://") else {
+            result(FlutterError(code: "URL_ERROR", message: "Invalid Twitter URL scheme", details: nil))
+            return
+        }
+        
+        guard UIApplication.shared.canOpenURL(twitterURL) else {
+            if let content = content, isOpenBrowser {
+                let webUrlString = "https://x.com/intent/tweet?text=\(content)"
+                openUrl(urlString: webUrlString, webUrlString: webUrlString, result: result, isOpenBrowser: true)
+            } else {
+                result(FlutterError(code: "APP_NOT_INSTALLED", message: "Twitter is not installed and browser option is not enabled", details: nil))
+            }
+            return
+        }
+        
+        guard let composer = SLComposeViewController(forServiceType: SLServiceTypeTwitter) else {
+            result(FlutterError(code: "TWITTER_COMPOSER_ERROR", message: "Unable to create Twitter composer", details: nil))
+            return
+        }
+        
+        if let content = content {
+            composer.setInitialText(content)
+            if #unavailable(iOS 16.0), let url = URL(string: content) {
+                composer.add(url)
+            }
+        }
+        
+        for mediaPath in mediaUris {
+            if let image = UIImage(contentsOfFile: mediaPath) {
+                composer.add(image)
+            }
+        }
+        
+        DispatchQueue.main.async {
+            guard let topController = self.topViewController() else {
+                result(FlutterError(code: "VIEW_ERROR", message: "Unable to find a view controller to present Twitter composer", details: nil))
+                return
+            }
+            
+            topController.present(composer, animated: true, completion: nil)
+            result(nil)
         }
     }
 
@@ -108,7 +189,7 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
     private func shareToWhatsApp(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
         if let content = arguments["content"] as? String, let imageUri = arguments["media"] as? String {
-            shareContentAndImageToSpecificApp(content: content, imageUri: imageUri, appUrlScheme: "whatsapp://send?text=\(content)", webUrlString: "https://api.whatsapp.com/send?text=\(content)", result: result, isOpenBrowser: isOpenBrowser)
+            shareContentAndImageToSpecificApp(content: content, imageUri: imageUri, appUrlScheme: "whatsapp://", webUrlString: "https://api.whatsapp.com/send?text=\(content)", result: result, isOpenBrowser: isOpenBrowser)
         } else if let content = arguments["content"] as? String {
             let urlString = "whatsapp://send?text=\(content)"
             let webUrlString = "https://api.whatsapp.com/send?text=\(content)"
@@ -140,13 +221,95 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
     private func shareToTelegram(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
         if let content = arguments["content"] as? String, let imageUri = arguments["media"] as? String {
-            shareContentAndImageToSpecificApp(content: content, imageUri: imageUri, appUrlScheme: "tg://msg?text=\(content)", webUrlString: "https://t.me/share/url?url=\(content)", result: result, isOpenBrowser: isOpenBrowser)
+            shareContentAndImageToSpecificApp(content: content, imageUri: imageUri, appUrlScheme: "tg://", webUrlString: "https://t.me/share/url?url=\(content)", result: result, isOpenBrowser: isOpenBrowser)
         } else if let content = arguments["content"] as? String {
             let urlString = "tg://msg?text=\(content)"
             let webUrlString = "https://t.me/share/url?url=\(content)"
             openUrl(urlString: urlString, webUrlString: webUrlString, result: result, isOpenBrowser: isOpenBrowser)
         } else if let imageUri = arguments["media"] as? String {
             shareImageToSpecificApp(imageUri: imageUri, appUrlScheme: "tg://", result: result, isOpenBrowser: isOpenBrowser)
+        }
+    }
+    
+    /// Shares media to Instagram feed via the native share sheet.
+    ///
+    /// - Parameters:
+    ///   - arguments: Arguments dictionary containing content and media path.
+    ///   - result: FlutterResult object to complete the call.
+    ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
+    private func shareToInstagram(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
+        let mediaArgument = arguments["media"]
+        let mediaUri: String? = (mediaArgument as? String) ?? (mediaArgument as? [String])?.first
+
+        guard let mediaUri = mediaUri else {
+            if isOpenBrowser {
+                openUrl(urlString: "https://www.instagram.com/", webUrlString: "https://www.instagram.com/", result: result, isOpenBrowser: true)
+            } else {
+                result(FlutterError(code: "MEDIA_REQUIRED", message: "Instagram sharing requires an image or video path", details: nil))
+            }
+            return
+        }
+
+        let isImageFile = self.isImage(filePath: mediaUri)
+        if isImageFile {
+            shareImageToInstagramFeed(mediaPath: mediaUri, isOpenBrowser: isOpenBrowser, result: result)
+        } else {
+            shareVideoToInstagramFeed(mediaPath: mediaUri, isOpenBrowser: isOpenBrowser, result: result)
+        }
+    }
+
+    /// Shares media to Instagram story using the Instagram Stories scheme.
+    ///
+    /// - Parameters:
+    ///   - arguments: Arguments dictionary containing content and media path.
+    ///   - result: FlutterResult object to complete the call.
+    ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
+    private func shareToInstagramStory(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
+        let content = arguments["content"] as? String
+        let mediaArgument = arguments["media"]
+        let mediaUri: String? = (mediaArgument as? String) ?? (mediaArgument as? [String])?.first
+
+        guard let mediaUri = mediaUri else {
+            result(FlutterError(code: "MEDIA_REQUIRED", message: "Instagram story requires an image or video path", details: nil))
+            return
+        }
+
+        let mediaURL = URL(fileURLWithPath: mediaUri)
+        var pasteboardItem: [String: Any] = [:]
+
+        if let image = UIImage(contentsOfFile: mediaUri), let imageData = image.pngData() {
+            pasteboardItem["com.instagram.sharedSticker.backgroundImage"] = imageData
+        } else if let videoData = try? Data(contentsOf: mediaURL) {
+            pasteboardItem["com.instagram.sharedSticker.backgroundVideo"] = videoData
+        }
+
+        if let content = content {
+            pasteboardItem["com.instagram.sharedSticker.attributionURL"] = content
+        }
+
+        guard !pasteboardItem.isEmpty else {
+            result(FlutterError(code: "MEDIA_ERROR", message: "Unable to read media for Instagram story", details: nil))
+            return
+        }
+
+        let options: [UIPasteboard.OptionsKey: Any] = [.expirationDate: Date().addingTimeInterval(300)]
+        UIPasteboard.general.setItems([pasteboardItem], options: options)
+
+        guard let url = URL(string: "instagram-stories://share?source_application=\(Bundle.main.bundleIdentifier ?? "")") else {
+            result(FlutterError(code: "URL_ERROR", message: "Invalid Instagram story URL", details: nil))
+            return
+        }
+
+        DispatchQueue.main.async {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                result(nil)
+            } else if isOpenBrowser, let webUrl = URL(string: "https://www.instagram.com/") {
+                UIApplication.shared.open(webUrl, options: [:], completionHandler: nil)
+                result(nil)
+            } else {
+                result(FlutterError(code: "APP_NOT_INSTALLED", message: "Instagram is not installed and browser option is not enabled", details: nil))
+            }
         }
     }
     
@@ -249,6 +412,176 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
             result(nil)
         } else {
             result(FlutterError(code: "APP_NOT_INSTALLED", message: "App not installed and browser option is not enabled", details: nil))
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Returns the top-most view controller for presenting UI.
+    private func topViewController(from root: UIViewController? = UIApplication.shared.windows.first { $0.isKeyWindow }?.rootViewController) -> UIViewController? {
+        guard let root = root else { return nil }
+
+        if let nav = root as? UINavigationController {
+            return topViewController(from: nav.visibleViewController)
+        } else if let tab = root as? UITabBarController, let selected = tab.selectedViewController {
+            return topViewController(from: selected)
+        } else if let presented = root.presentedViewController {
+            return topViewController(from: presented)
+        }
+
+        return root
+    }
+
+    // MARK: - Common share helpers
+
+    private func buildShareItems(content: String?, mediaUri: String) -> [Any] {
+        var items: [Any] = []
+        if let content = content {
+            items.append(content)
+        }
+        let mediaURL = URL(fileURLWithPath: mediaUri)
+        if let image = UIImage(contentsOfFile: mediaUri) {
+            items.append(image)
+        } else {
+            items.append(mediaURL)
+        }
+        return items
+    }
+
+    private func presentShareSheet(items: [Any], errorCode: String, result: @escaping FlutterResult) {
+        DispatchQueue.main.async {
+            guard let topController = self.topViewController() else {
+                result(FlutterError(code: "VIEW_ERROR", message: "Unable to find a view controller to present share sheet", details: nil))
+                return
+            }
+
+            let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+            activityVC.completionWithItemsHandler = { _, _, _, error in
+                if let error = error {
+                    result(FlutterError(code: errorCode, message: error.localizedDescription, details: nil))
+                } else {
+                    result(nil)
+                }
+            }
+
+            if let popover = activityVC.popoverPresentationController {
+                popover.sourceView = topController.view
+                popover.sourceRect = CGRect(x: topController.view.bounds.midX, y: topController.view.bounds.midY, width: 0, height: 0)
+            }
+
+            topController.present(activityVC, animated: true, completion: nil)
+        }
+    }
+
+    // MARK: - Instagram Helpers (Feed)
+
+    private func isImage(filePath: String) -> Bool {
+        let url = URL(fileURLWithPath: filePath)
+        if #available(iOS 14.0, *) {
+            if let utType = UTType(filenameExtension: url.pathExtension) {
+                return utType.conforms(to: .image)
+            }
+        }
+        // Fallback: try loading as UIImage
+        return UIImage(contentsOfFile: filePath) != nil
+    }
+
+    private func requestPhotoPermissionIfNeeded(completion: @escaping (Bool) -> Void) {
+        let status = PHPhotoLibrary.authorizationStatus()
+        switch status {
+        case .authorized, .limited:
+            completion(true)
+        case .notDetermined:
+            PHPhotoLibrary.requestAuthorization { newStatus in
+                completion(newStatus == .authorized || newStatus == .limited)
+            }
+        default:
+            completion(false)
+        }
+    }
+
+    private func shareImageToInstagramFeed(mediaPath: String, isOpenBrowser: Bool, result: @escaping FlutterResult) {
+        requestPhotoPermissionIfNeeded { granted in
+            guard granted else {
+                result(FlutterError(code: "PHOTO_PERMISSION_DENIED", message: "Photo library access is required for Instagram sharing", details: nil))
+                return
+            }
+
+            guard let imageData = try? Data(contentsOf: URL(fileURLWithPath: mediaPath)) else {
+                result(FlutterError(code: "IMAGE_ERROR", message: "Unable to load image data", details: nil))
+                return
+            }
+
+            PHPhotoLibrary.shared().performChanges({
+                let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
+                let filePath = "\(documentsPath)/\(Date().description).jpeg"
+                try? imageData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+                PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: URL(fileURLWithPath: filePath))
+            }, completionHandler: { success, error in
+                if success, let identifier = self.fetchLatestAssetIdentifier(mediaType: .image) {
+                    self.openInstagramLibrary(with: identifier, isOpenBrowser: isOpenBrowser, result: result)
+                } else if let error = error {
+                    result(FlutterError(code: "INSTAGRAM_SHARE_ERROR", message: error.localizedDescription, details: nil))
+                } else {
+                    result(FlutterError(code: "INSTAGRAM_SHARE_ERROR", message: "Unknown error while sharing to Instagram", details: nil))
+                }
+            })
+        }
+    }
+
+    private func shareVideoToInstagramFeed(mediaPath: String, isOpenBrowser: Bool, result: @escaping FlutterResult) {
+        requestPhotoPermissionIfNeeded { granted in
+            guard granted else {
+                result(FlutterError(code: "PHOTO_PERMISSION_DENIED", message: "Photo library access is required for Instagram sharing", details: nil))
+                return
+            }
+
+            guard let videoData = try? Data(contentsOf: URL(fileURLWithPath: mediaPath)) else {
+                result(FlutterError(code: "VIDEO_ERROR", message: "Unable to load video data", details: nil))
+                return
+            }
+
+            PHPhotoLibrary.shared().performChanges({
+                let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
+                let filePath = "\(documentsPath)/\(Date().description).mp4"
+                try? videoData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: URL(fileURLWithPath: filePath))
+            }, completionHandler: { success, error in
+                if success, let identifier = self.fetchLatestAssetIdentifier(mediaType: .video) {
+                    self.openInstagramLibrary(with: identifier, isOpenBrowser: isOpenBrowser, result: result)
+                } else if let error = error {
+                    result(FlutterError(code: "INSTAGRAM_SHARE_ERROR", message: error.localizedDescription, details: nil))
+                } else {
+                    result(FlutterError(code: "INSTAGRAM_SHARE_ERROR", message: "Unknown error while sharing to Instagram", details: nil))
+                }
+            })
+        }
+    }
+
+    private func fetchLatestAssetIdentifier(mediaType: PHAssetMediaType) -> String? {
+        let fetchOptions = PHFetchOptions()
+        fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        let fetchResult = PHAsset.fetchAssets(with: mediaType, options: fetchOptions)
+        return fetchResult.firstObject?.localIdentifier
+    }
+
+    private func openInstagramLibrary(with identifier: String, isOpenBrowser: Bool, result: @escaping FlutterResult) {
+        let urlString = "instagram://library?LocalIdentifier=\(identifier)"
+        guard let url = URL(string: urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") else {
+            result(FlutterError(code: "URL_ERROR", message: "Invalid Instagram URL", details: nil))
+            return
+        }
+
+        DispatchQueue.main.async {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                result(nil)
+            } else if isOpenBrowser, let webUrl = URL(string: "https://www.instagram.com/") {
+                UIApplication.shared.open(webUrl, options: [:], completionHandler: nil)
+                result(nil)
+            } else {
+                result(FlutterError(code: "APP_NOT_INSTALLED", message: "Instagram is not installed and browser option is not enabled", details: nil))
+            }
         }
     }
 }

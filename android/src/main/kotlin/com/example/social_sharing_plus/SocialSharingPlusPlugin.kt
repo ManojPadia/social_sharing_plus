@@ -40,6 +40,10 @@ class SocialSharingPlusPlugin : FlutterPlugin, MethodCallHandler {
                     shareToSocialMedia(SocialConstants.REDDIT_PACKAGE_NAME, call, result)
             SocialConstants.TELEGRAM ->
                     shareToSocialMedia(SocialConstants.TELEGRAM_PACKAGE_NAME, call, result)
+            SocialConstants.INSTAGRAM ->
+                    shareToSocialMedia(SocialConstants.INSTAGRAM_PACKAGE_NAME, call, result)
+            SocialConstants.INSTAGRAM_STORY ->
+                    shareToInstagramStory(call, result)
             else -> result.notImplemented()
         }
     }
@@ -85,6 +89,62 @@ class SocialSharingPlusPlugin : FlutterPlugin, MethodCallHandler {
             shareMultipleMedia(packageName, content, mediaUris, result, isOpenBrowser)
         } else {
             shareSingleMedia(packageName, content, null, result, isOpenBrowser)
+        }
+    }
+
+    private fun shareToInstagramStory(call: MethodCall, result: Result) {
+        val content: String? = call.argument<String>("content")
+        val media: Any? = call.argument<Any>("media")
+        val mediaPath: String? =
+                when (media) {
+                    is String -> media
+                    is List<*> -> media.firstOrNull() as? String
+                    else -> null
+                }
+        val isOpenBrowser: Boolean = call.argument<Boolean>("isOpenBrowser") ?: false
+
+        if (mediaPath.isNullOrBlank()) {
+            result.error("MEDIA_REQUIRED", "Instagram story requires an image or video path", null)
+            return
+        }
+
+        val file = File(mediaPath)
+        val mediaUri =
+                FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", file
+                )
+
+        val mimeType =
+                when (file.extension.lowercase()) {
+                    SharePaths.MP4.reference -> MediaType.VIDEO.reference
+                    else -> MediaType.IMAGE.reference
+                }
+
+        val intent =
+                Intent("com.instagram.share.ADD_TO_STORY").apply {
+                    setDataAndType(mediaUri, mimeType)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra("source_application", context.packageName)
+                    content?.let { putExtra("content_url", it) }
+                    setPackage(SocialConstants.INSTAGRAM_PACKAGE_NAME)
+                }
+
+        if (intent.resolveActivity(context.packageManager) != null) {
+            context.grantUriPermission(
+                    SocialConstants.INSTAGRAM_PACKAGE_NAME,
+                    mediaUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            result.success(null)
+        } else {
+            if (isOpenBrowser) {
+                openInBrowser(SocialConstants.INSTAGRAM_PACKAGE_NAME, content ?: "", mediaUri)
+                result.success(null)
+            } else {
+                result.error("APP_NOT_INSTALLED", "${SocialConstants.INSTAGRAM_PACKAGE_NAME} is not installed", null)
+            }
         }
     }
 
@@ -178,6 +238,8 @@ class SocialSharingPlusPlugin : FlutterPlugin, MethodCallHandler {
                             "${SocialConstants.REDDIT_WEB_URL}$content"
                     SocialConstants.TELEGRAM_PACKAGE_NAME ->
                             "${SocialConstants.TELEGRAM_WEB_URL}$content"
+                    SocialConstants.INSTAGRAM_PACKAGE_NAME ->
+                            "${SocialConstants.INSTAGRAM_WEB_URL}"
                     else -> null
                 }
 
@@ -190,7 +252,9 @@ class SocialSharingPlusPlugin : FlutterPlugin, MethodCallHandler {
                 }
 
         val finalUrlString: String? =
-                webUrlString?.let { url -> if (mediaParam != null) "$url&$mediaParam" else url }
+                webUrlString?.let { url ->
+                    if (mediaParam != null && url.contains("?")) "$url&$mediaParam" else url
+                }
 
         finalUrlString?.let {
             webIntent.data = Uri.parse(it)
