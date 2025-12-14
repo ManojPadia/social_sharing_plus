@@ -62,11 +62,12 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     /// Shares content to Facebook.
     ///
     /// - Parameters:
-    ///   - arguments: Arguments dictionary containing content and image URIs.
+    ///   - arguments: Arguments dictionary containing content, media data, and appId.
     ///   - result: FlutterResult object to complete the call.
     ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
     private func shareToFacebook(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
         let content = arguments["content"] as? String
+        let appId = arguments["appId"] as? String
         let mediaArgument = arguments["media"]
         let mediaUri: String? = (mediaArgument as? String) ?? (mediaArgument as? [String])?.first
 
@@ -100,7 +101,10 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
                 result(nil)
             }
         } else if let content = content {
-            let webUrlString = "https://www.facebook.com/sharer/sharer.php?u=\(content)"
+            var webUrlString = "https://www.facebook.com/sharer/sharer.php?u=\(content)"
+            if let appId = appId, !appId.isEmpty {
+                webUrlString += "&app_id=\(appId)"
+            }
             openUrl(urlString: webUrlString, webUrlString: webUrlString, result: result, isOpenBrowser: isOpenBrowser)
         } else {
             result(FlutterError(code: "CONTENT_REQUIRED", message: "Facebook sharing requires content or media", details: nil))
@@ -234,10 +238,11 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
     /// Shares media to Instagram feed via the native share sheet.
     ///
     /// - Parameters:
-    ///   - arguments: Arguments dictionary containing content and media path.
+    ///   - arguments: Arguments dictionary containing content, media path, and appId.
     ///   - result: FlutterResult object to complete the call.
     ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
     private func shareToInstagram(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
+        let appId = arguments["appId"] as? String
         let mediaArgument = arguments["media"]
         let mediaUri: String? = (mediaArgument as? String) ?? (mediaArgument as? [String])?.first
 
@@ -252,20 +257,21 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
 
         let isImageFile = self.isImage(filePath: mediaUri)
         if isImageFile {
-            shareImageToInstagramFeed(mediaPath: mediaUri, isOpenBrowser: isOpenBrowser, result: result)
+            shareImageToInstagramFeed(mediaPath: mediaUri, appId: appId, isOpenBrowser: isOpenBrowser, result: result)
         } else {
-            shareVideoToInstagramFeed(mediaPath: mediaUri, isOpenBrowser: isOpenBrowser, result: result)
+            shareVideoToInstagramFeed(mediaPath: mediaUri, appId: appId, isOpenBrowser: isOpenBrowser, result: result)
         }
     }
 
     /// Shares media to Instagram story using the Instagram Stories scheme.
     ///
     /// - Parameters:
-    ///   - arguments: Arguments dictionary containing content and media path.
+    ///   - arguments: Arguments dictionary containing content, media path, and appId.
     ///   - result: FlutterResult object to complete the call.
     ///   - isOpenBrowser: Flag indicating whether to open in browser if app not installed.
     private func shareToInstagramStory(arguments: [String: Any], result: @escaping FlutterResult, isOpenBrowser: Bool) {
         let content = arguments["content"] as? String
+        let appId = arguments["appId"] as? String
         let mediaArgument = arguments["media"]
         let mediaUri: String? = (mediaArgument as? String) ?? (mediaArgument as? [String])?.first
 
@@ -295,7 +301,8 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
         let options: [UIPasteboard.OptionsKey: Any] = [.expirationDate: Date().addingTimeInterval(300)]
         UIPasteboard.general.setItems([pasteboardItem], options: options)
 
-        guard let url = URL(string: "instagram-stories://share?source_application=\(Bundle.main.bundleIdentifier ?? "")") else {
+        let sourceApplication = appId ?? Bundle.main.bundleIdentifier ?? ""
+        guard let url = URL(string: "instagram-stories://share?source_application=\(sourceApplication)") else {
             result(FlutterError(code: "URL_ERROR", message: "Invalid Instagram story URL", details: nil))
             return
         }
@@ -500,7 +507,7 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
         }
     }
 
-    private func shareImageToInstagramFeed(mediaPath: String, isOpenBrowser: Bool, result: @escaping FlutterResult) {
+    private func shareImageToInstagramFeed(mediaPath: String, appId: String?, isOpenBrowser: Bool, result: @escaping FlutterResult) {
         requestPhotoPermissionIfNeeded { granted in
             guard granted else {
                 result(FlutterError(code: "PHOTO_PERMISSION_DENIED", message: "Photo library access is required for Instagram sharing", details: nil))
@@ -519,7 +526,7 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
                 PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: URL(fileURLWithPath: filePath))
             }, completionHandler: { success, error in
                 if success, let identifier = self.fetchLatestAssetIdentifier(mediaType: .image) {
-                    self.openInstagramLibrary(with: identifier, isOpenBrowser: isOpenBrowser, result: result)
+                    self.openInstagramLibrary(with: identifier, appId: appId, isOpenBrowser: isOpenBrowser, result: result)
                 } else if let error = error {
                     result(FlutterError(code: "INSTAGRAM_SHARE_ERROR", message: error.localizedDescription, details: nil))
                 } else {
@@ -529,7 +536,7 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
         }
     }
 
-    private func shareVideoToInstagramFeed(mediaPath: String, isOpenBrowser: Bool, result: @escaping FlutterResult) {
+    private func shareVideoToInstagramFeed(mediaPath: String, appId: String?, isOpenBrowser: Bool, result: @escaping FlutterResult) {
         requestPhotoPermissionIfNeeded { granted in
             guard granted else {
                 result(FlutterError(code: "PHOTO_PERMISSION_DENIED", message: "Photo library access is required for Instagram sharing", details: nil))
@@ -548,7 +555,7 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
                 PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: URL(fileURLWithPath: filePath))
             }, completionHandler: { success, error in
                 if success, let identifier = self.fetchLatestAssetIdentifier(mediaType: .video) {
-                    self.openInstagramLibrary(with: identifier, isOpenBrowser: isOpenBrowser, result: result)
+                    self.openInstagramLibrary(with: identifier, appId: appId, isOpenBrowser: isOpenBrowser, result: result)
                 } else if let error = error {
                     result(FlutterError(code: "INSTAGRAM_SHARE_ERROR", message: error.localizedDescription, details: nil))
                 } else {
@@ -565,8 +572,11 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
         return fetchResult.firstObject?.localIdentifier
     }
 
-    private func openInstagramLibrary(with identifier: String, isOpenBrowser: Bool, result: @escaping FlutterResult) {
-        let urlString = "instagram://library?LocalIdentifier=\(identifier)"
+    private func openInstagramLibrary(with identifier: String, appId: String?, isOpenBrowser: Bool, result: @escaping FlutterResult) {
+        var urlString = "instagram://library?LocalIdentifier=\(identifier)"
+        if let appId = appId, !appId.isEmpty {
+            urlString += "&source_application=\(appId)"
+        }
         guard let url = URL(string: urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") else {
             result(FlutterError(code: "URL_ERROR", message: "Invalid Instagram URL", details: nil))
             return

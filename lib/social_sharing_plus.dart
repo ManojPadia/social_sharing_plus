@@ -24,6 +24,7 @@ class SocialSharingPlus {
   /// * [content]: The content to be shared.
   /// * [image]: The image to be shared. (deprecated, use [media] instead)
   /// * [media]: The video or image to be shared.
+  /// * [appId]: The app ID for Facebook/Instagram sharing (optional).
   /// * [isOpenBrowser]: Whether to open a browser if the app is not installed.
   /// * [onAppNotInstalled]: Callback function to be called if the app is not installed. If `isOpenBrowser` is true, this method is ignored.
   static Future<void> shareToSocialMedia(
@@ -31,6 +32,7 @@ class SocialSharingPlus {
     String content, {
     @Deprecated('Please use the "media" parameter instead.') String? image,
     String? media,
+    String? appId,
     bool isOpenBrowser = true,
     VoidCallback? onAppNotInstalled,
   }) =>
@@ -38,6 +40,7 @@ class SocialSharingPlus {
         socialPlatform,
         content,
         media: media,
+        appId: appId,
         isOpenBrowser: isOpenBrowser,
         onAppNotInstalled: onAppNotInstalled,
       );

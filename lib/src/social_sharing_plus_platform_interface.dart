@@ -30,6 +30,7 @@ abstract class SocialSharingPlusPlatform extends PlatformInterface {
   /// * [content]: The content to be shared.
   /// * [image]: The image to be shared. (deprecated, use [media] instead)
   /// * [media]: The video or image to be shared.
+  /// * [appId]: The app ID for Facebook/Instagram sharing (optional).
   /// * [isOpenBrowser]: Whether to open a browser if the app is not installed.
   /// * [onAppNotInstalled]: Callback function to be called if the app is not installed. If `isOpenBrowser` is true, this method is ignored.
   Future<void> shareToSocialMedia(
@@ -38,6 +39,7 @@ abstract class SocialSharingPlusPlatform extends PlatformInterface {
     required bool isOpenBrowser,
     @Deprecated('Please use the "media" parameter instead.') String? image,
     String? media,
+    String? appId,
     VoidCallback? onAppNotInstalled,
   });
 

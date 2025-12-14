@@ -15,6 +15,7 @@ class MethodChannelSocialSharingPlus extends SocialSharingPlusPlatform {
   /// * [content]: The content to be shared.
   /// * [image]: The image to be shared. (deprecated, use [media] instead)
   /// * [media]: The video or image to be shared.
+  /// * [appId]: The app ID for Facebook/Instagram sharing (optional).
   /// * [isOpenBrowser]: Whether to open a browser if the app is not installed.
   /// * [onAppNotInstalled]: Callback function to be called if the app is not installed. If `isOpenBrowser` is true, this method is ignored.
   @override
@@ -24,14 +25,19 @@ class MethodChannelSocialSharingPlus extends SocialSharingPlusPlatform {
     required bool isOpenBrowser,
     @Deprecated('Please use the "media" parameter instead.') String? image,
     String? media,
+    String? appId,
     VoidCallback? onAppNotInstalled,
   }) async {
     try {
-      await methodChannel.invokeMethod(platform.methodName, {
+      final arguments = <String, dynamic>{
         'content': content,
         'media': media,
         'isOpenBrowser': isOpenBrowser,
-      });
+      };
+      if (appId != null) {
+        arguments['appId'] = appId;
+      }
+      await methodChannel.invokeMethod(platform.methodName, arguments);
     } on PlatformException catch (e) {
       if (e.code == 'APP_NOT_INSTALLED' && !isOpenBrowser) {
         onAppNotInstalled?.call();
