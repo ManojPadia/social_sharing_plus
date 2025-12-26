@@ -519,13 +519,27 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
                 return
             }
 
+            // Capture the *exact* created asset identifier to avoid "random/last photo" races.
+            var createdIdentifier: String?
+            var tempFileURL: URL?
+
             PHPhotoLibrary.shared().performChanges({
-                let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
-                let filePath = "\(documentsPath)/\(Date().description).jpeg"
-                try? imageData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-                PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: URL(fileURLWithPath: filePath))
+                let tmpURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("ssp-\(UUID().uuidString).jpeg")
+                tempFileURL = tmpURL
+                try? imageData.write(to: tmpURL, options: .atomic)
+
+                if let req = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: tmpURL),
+                   let placeholder = req.placeholderForCreatedAsset {
+                    createdIdentifier = placeholder.localIdentifier
+                }
             }, completionHandler: { success, error in
-                if success, let identifier = self.fetchLatestAssetIdentifier(mediaType: .image) {
+                // Cleanup temp file (the photo is already in the Photos library at this point).
+                if let tempFileURL = tempFileURL {
+                    try? FileManager.default.removeItem(at: tempFileURL)
+                }
+
+                if success, let identifier = createdIdentifier {
                     self.openInstagramLibrary(with: identifier, appId: appId, isOpenBrowser: isOpenBrowser, result: result)
                 } else if let error = error {
                     result(FlutterError(code: "INSTAGRAM_SHARE_ERROR", message: error.localizedDescription, details: nil))
@@ -548,13 +562,27 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
                 return
             }
 
+            // Capture the *exact* created asset identifier to avoid "random/last video" races.
+            var createdIdentifier: String?
+            var tempFileURL: URL?
+
             PHPhotoLibrary.shared().performChanges({
-                let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
-                let filePath = "\(documentsPath)/\(Date().description).mp4"
-                try? videoData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: URL(fileURLWithPath: filePath))
+                let tmpURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("ssp-\(UUID().uuidString).mp4")
+                tempFileURL = tmpURL
+                try? videoData.write(to: tmpURL, options: .atomic)
+
+                if let req = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: tmpURL),
+                   let placeholder = req.placeholderForCreatedAsset {
+                    createdIdentifier = placeholder.localIdentifier
+                }
             }, completionHandler: { success, error in
-                if success, let identifier = self.fetchLatestAssetIdentifier(mediaType: .video) {
+                // Cleanup temp file (the video is already in the Photos library at this point).
+                if let tempFileURL = tempFileURL {
+                    try? FileManager.default.removeItem(at: tempFileURL)
+                }
+
+                if success, let identifier = createdIdentifier {
                     self.openInstagramLibrary(with: identifier, appId: appId, isOpenBrowser: isOpenBrowser, result: result)
                 } else if let error = error {
                     result(FlutterError(code: "INSTAGRAM_SHARE_ERROR", message: error.localizedDescription, details: nil))
@@ -563,13 +591,6 @@ public class SocialSharingPlusPlugin: NSObject, FlutterPlugin {
                 }
             })
         }
-    }
-
-    private func fetchLatestAssetIdentifier(mediaType: PHAssetMediaType) -> String? {
-        let fetchOptions = PHFetchOptions()
-        fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        let fetchResult = PHAsset.fetchAssets(with: mediaType, options: fetchOptions)
-        return fetchResult.firstObject?.localIdentifier
     }
 
     private func openInstagramLibrary(with identifier: String, appId: String?, isOpenBrowser: Bool, result: @escaping FlutterResult) {
